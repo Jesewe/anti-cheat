@@ -1,4 +1,10 @@
-import psutil, hashlib, os, re, time, logging, smtplib
+import psutil
+import hashlib
+import os
+import re
+import time
+import logging
+import smtplib
 from email.mime.text import MIMEText
 from typing import Dict, Optional
 
@@ -7,7 +13,7 @@ TARGET_PROCESS = "cs2.exe"
 SCAN_INTERVAL = 5  # Seconds
 LOG_FILE = "anti_cheat.log"
 CHEAT_SIGNATURES = {
-    "aimbot.dll": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # Example SHA-256
+    "aimbot.dll": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "wallhack.dll": "b94d27b9934d3e08a52e52d7da7dabfa5a0c8c7cdbddf243c8b9f64f5a3a3db2",
 }
 EMAIL_ALERTS = {
@@ -16,7 +22,7 @@ EMAIL_ALERTS = {
     "smtp_port": 587,
     "sender_email": "alert@example.com",
     "receiver_email": "admin@example.com",
-    "email_password": "yourpassword"
+    "email_password": "yourpassword",
 }
 WHITELISTED_PROCESSES = ["explorer.exe"]
 
@@ -31,7 +37,7 @@ def log_event(level: str, message: str):
     """Logs an event with a specific level."""
     log_func = getattr(logging, level.lower(), logging.info)
     log_func(message)
-    if level == "WARNING" and EMAIL_ALERTS["enabled"]:
+    if level.upper() == "WARNING" and EMAIL_ALERTS["enabled"]:
         send_email_alert(message)
 
 def send_email_alert(message: str):
@@ -130,17 +136,19 @@ def monitor():
     """Continuously monitor the system."""
     log_event("INFO", "Anti-Cheat program started.")
     cheat_signatures = load_cheat_signatures()
-    while True:
-        try:
+    try:
+        while True:
             scan_processes(TARGET_PROCESS, cheat_signatures)
-        except Exception as e:
-            log_event("ERROR", f"Unexpected error during scanning: {e}")
-        time.sleep(SCAN_INTERVAL)
+            time.sleep(SCAN_INTERVAL)
+    except KeyboardInterrupt:
+        log_event("INFO", "Anti-Cheat program terminated by user.")
+    except Exception as e:
+        log_event("ERROR", f"Unexpected error during monitoring: {e}")
+    finally:
+        log_event("INFO", "Anti-Cheat monitoring stopped.")
 
 if __name__ == "__main__":
     try:
         monitor()
-    except KeyboardInterrupt:
-        log_event("INFO", "Anti-Cheat program terminated by user.")
     except Exception as e:
-        log_event("ERROR", f"Unexpected error: {e}")
+        log_event("ERROR", f"Critical error: {e}")
