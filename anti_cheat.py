@@ -1,10 +1,10 @@
-import psutil
-import hashlib
 import os
 import re
 import time
 import logging
 import smtplib
+import hashlib
+import psutil
 from email.mime.text import MIMEText
 from typing import Dict, Optional
 
@@ -13,34 +13,36 @@ TARGET_PROCESS = "cs2.exe"
 SCAN_INTERVAL = 5  # Seconds
 LOG_FILE = "anti_cheat.log"
 CHEAT_SIGNATURES = {
-    "aimbot.dll": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "aimbot.dll": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # Example SHA-256
     "wallhack.dll": "b94d27b9934d3e08a52e52d7da7dabfa5a0c8c7cdbddf243c8b9f64f5a3a3db2",
 }
-EMAIL_ALERTS = {
-    "enabled": True,
-    "smtp_server": "smtp.example.com",
-    "smtp_port": 587,
-    "sender_email": "alert@example.com",
-    "receiver_email": "admin@example.com",
-    "email_password": "yourpassword",
-}
 WHITELISTED_PROCESSES = ["explorer.exe"]
+
+# Email Alerts Configuration
+EMAIL_ALERTS = {
+    "enabled": os.getenv("EMAIL_ALERTS_ENABLED", "False").lower() == "true",
+    "smtp_server": os.getenv("SMTP_SERVER", "smtp.example.com"),
+    "smtp_port": int(os.getenv("SMTP_PORT", 587)),
+    "sender_email": os.getenv("SENDER_EMAIL", "alert@example.com"),
+    "receiver_email": os.getenv("RECEIVER_EMAIL", "admin@example.com"),
+    "email_password": os.getenv("EMAIL_PASSWORD", "yourpassword"),
+}
 
 # Configure Logging
 logging.basicConfig(
     filename=LOG_FILE,
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format="%(asctime)s - PID:%(process)d - %(levelname)s - %(message)s"
 )
 
-def log_event(level: str, message: str):
+def log_event(level: str, message: str) -> None:
     """Logs an event with a specific level."""
     log_func = getattr(logging, level.lower(), logging.info)
     log_func(message)
     if level.upper() == "WARNING" and EMAIL_ALERTS["enabled"]:
         send_email_alert(message)
 
-def send_email_alert(message: str):
+def send_email_alert(message: str) -> None:
     """Send an email alert with the provided message."""
     try:
         msg = MIMEText(message)
@@ -64,21 +66,27 @@ def hash_file(file_path: str, algorithm: str = "sha256") -> Optional[str]:
             for chunk in iter(lambda: f.read(8192), b""):
                 hash_obj.update(chunk)
         return hash_obj.hexdigest()
+    except FileNotFoundError:
+        log_event("WARNING", f"File not found for hashing: {file_path}")
     except Exception as e:
         log_event("ERROR", f"Error hashing file {file_path}: {e}")
-        return None
+    return None
 
 def load_cheat_signatures() -> Dict[str, str]:
     """Load cheat signatures from a predefined dictionary or external source."""
     return CHEAT_SIGNATURES
 
-def scan_processes(target_process: str, cheat_signatures: Dict[str, str]):
+def is_whitelisted_process(process_name: str) -> bool:
+    """Check if a process is in the whitelist."""
+    return process_name.lower() in (p.lower() for p in WHITELISTED_PROCESSES)
+
+def scan_processes(target_process: str, cheat_signatures: Dict[str, str]) -> None:
     """Scan running processes for unauthorized interactions."""
     log_event("INFO", "Scanning processes...")
     for proc in psutil.process_iter(['pid', 'name']):
         try:
             process_name = proc.info['name'].lower()
-            if process_name in [p.lower() for p in WHITELISTED_PROCESSES]:
+            if is_whitelisted_process(process_name):
                 log_event("INFO", f"Skipping whitelisted process: {process_name}")
                 continue
 
@@ -91,7 +99,7 @@ def scan_processes(target_process: str, cheat_signatures: Dict[str, str]):
         except Exception as e:
             log_event("ERROR", f"Error scanning processes: {e}")
 
-def scan_modules(pid: int, cheat_signatures: Dict[str, str]):
+def scan_modules(pid: int, cheat_signatures: Dict[str, str]) -> None:
     """Scan loaded modules of a process for known cheats."""
     try:
         process = psutil.Process(pid)
@@ -106,14 +114,13 @@ def scan_modules(pid: int, cheat_signatures: Dict[str, str]):
     except Exception as e:
         log_event("ERROR", f"Error scanning modules for PID {pid}: {e}")
 
-def check_memory_integrity(pid: int):
+def check_memory_integrity(pid: int) -> None:
     """Check memory regions for unauthorized modifications."""
     try:
         process = psutil.Process(pid)
         memory_info = process.memory_info()
         log_event("INFO", f"Memory check for PID {pid}: RSS={memory_info.rss}, VMS={memory_info.vms}")
 
-        # Perform deeper memory scans
         for region in process.memory_maps():
             if region.path == "":  # Only scan anonymous memory regions
                 try:
@@ -121,18 +128,16 @@ def check_memory_integrity(pid: int):
                         mem_file.seek(region.addr)
                         data = mem_file.read(region.size)
 
-                        # Example: Search for a specific pattern
                         if re.search(b"cheat_code_pattern", data):
                             log_event("WARNING", f"Detected unauthorized pattern in memory region: {region.addr}")
                 except Exception as e:
                     log_event("ERROR", f"Error reading memory region {region.addr} for PID {pid}: {e}")
-
     except psutil.AccessDenied:
         log_event("WARNING", f"Access denied to memory of PID: {pid}")
     except Exception as e:
         log_event("ERROR", f"Error during memory integrity check for PID {pid}: {e}")
 
-def monitor():
+def monitor() -> None:
     """Continuously monitor the system."""
     log_event("INFO", "Anti-Cheat program started.")
     cheat_signatures = load_cheat_signatures()
@@ -148,7 +153,4 @@ def monitor():
         log_event("INFO", "Anti-Cheat monitoring stopped.")
 
 if __name__ == "__main__":
-    try:
-        monitor()
-    except Exception as e:
-        log_event("ERROR", f"Critical error: {e}")
+    monitor()
