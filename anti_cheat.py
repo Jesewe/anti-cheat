@@ -5,6 +5,7 @@ import logging
 import smtplib
 import hashlib
 import psutil
+import json
 from email.mime.text import MIMEText
 from typing import Dict, Optional
 
@@ -12,10 +13,7 @@ from typing import Dict, Optional
 TARGET_PROCESS = "cs2.exe"
 SCAN_INTERVAL = 5  # Seconds
 LOG_FILE = "anti_cheat.log"
-CHEAT_SIGNATURES = {
-    "aimbot.dll": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",  # Example SHA-256
-    "wallhack.dll": "b94d27b9934d3e08a52e52d7da7dabfa5a0c8c7cdbddf243c8b9f64f5a3a3db2",
-}
+SIGNATURE_FILE = "cheat_signatures.json"
 WHITELISTED_PROCESSES = ["explorer.exe"]
 
 # Email Alerts Configuration
@@ -25,14 +23,17 @@ EMAIL_ALERTS = {
     "smtp_port": int(os.getenv("SMTP_PORT", 587)),
     "sender_email": os.getenv("SENDER_EMAIL", "alert@example.com"),
     "receiver_email": os.getenv("RECEIVER_EMAIL", "admin@example.com"),
-    "email_password": os.getenv("EMAIL_PASSWORD", "yourpassword"),
+    "email_password": os.getenv("EMAIL_PASSWORD"),  # Ensure this is set via environment variable
 }
 
 # Configure Logging
 logging.basicConfig(
-    filename=LOG_FILE,
     level=logging.INFO,
-    format="%(asctime)s - PID:%(process)d - %(levelname)s - %(message)s"
+    format="%(asctime)s - PID:%(process)d - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
 )
 
 def log_event(level: str, message: str) -> None:
@@ -72,9 +73,17 @@ def hash_file(file_path: str, algorithm: str = "sha256") -> Optional[str]:
         log_event("ERROR", f"Error hashing file {file_path}: {e}")
     return None
 
-def load_cheat_signatures() -> Dict[str, str]:
-    """Load cheat signatures from a predefined dictionary or external source."""
-    return CHEAT_SIGNATURES
+def load_cheat_signatures(signature_file: str = SIGNATURE_FILE) -> Dict[str, str]:
+    """Load cheat signatures from a JSON file."""
+    try:
+        with open(signature_file, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        log_event("ERROR", f"Cheat signatures file not found: {signature_file}")
+        return {}
+    except json.JSONDecodeError:
+        log_event("ERROR", f"Invalid JSON in cheat signatures file: {signature_file}")
+        return {}
 
 def is_whitelisted_process(process_name: str) -> bool:
     """Check if a process is in the whitelist."""
@@ -126,10 +135,13 @@ def check_memory_integrity(pid: int) -> None:
                 try:
                     with open(f"/proc/{pid}/mem", "rb", buffering=0) as mem_file:
                         mem_file.seek(region.addr)
-                        data = mem_file.read(region.size)
-
-                        if re.search(b"cheat_code_pattern", data):
-                            log_event("WARNING", f"Detected unauthorized pattern in memory region: {region.addr}")
+                        chunk_size = 4096
+                        while True:
+                            data = mem_file.read(chunk_size)
+                            if not data:
+                                break
+                            if re.search(b"cheat_code_pattern", data):
+                                log_event("WARNING", f"Detected unauthorized pattern in memory region: {region.addr}")
                 except Exception as e:
                     log_event("ERROR", f"Error reading memory region {region.addr} for PID {pid}: {e}")
     except psutil.AccessDenied:
